@@ -314,6 +314,62 @@ static int is_dir(const char *path, struct dirent *entry)
 	return 0;
 }
 
+static int local_db_validate(pmdb_t *db)
+{
+	struct dirent *ent = NULL;
+	const char *dbpath;
+	DIR *dbdir;
+	int ret = -1;
+
+	if(db->status & DB_STATUS_VALID) {
+		return 0;
+	}
+
+	dbpath = _alpm_db_path(db);
+	if(dbpath == NULL) {
+		RET_ERR(db->handle, PM_ERR_DB_OPEN, -1);
+	}
+	dbdir = opendir(dbpath);
+	if(dbdir == NULL) {
+		if(errno == ENOENT) {
+			/* database dir doesn't exist yet */
+			db->status |= DB_STATUS_VALID;
+			return 0;
+		} else {
+			RET_ERR(db->handle, PM_ERR_DB_OPEN, -1);
+		}
+	}
+
+	while((ent = readdir(dbdir)) != NULL) {
+		const char *name = ent->d_name;
+		char path[PATH_MAX];
+
+		if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+			continue;
+		}
+		if(!is_dir(dbpath, ent)) {
+			continue;
+		}
+
+		snprintf(path, PATH_MAX, "%s%s/depends", dbpath, name);
+		if(access(path, F_OK) == 0) {
+			/* we found a depends file- bail */
+			db->handle->pm_errno = PM_ERR_DB_VERSION;
+			goto done;
+		}
+	}
+	/* we found no depends file after full scan */
+	db->status |= DB_STATUS_VALID;
+	ret = 0;
+
+done:
+	if(dbdir) {
+		closedir(dbdir);
+	}
+
+	return ret;
+}
+
 static int local_db_populate(pmdb_t *db)
 {
 	size_t est_count;
@@ -328,6 +384,7 @@ static int local_db_populate(pmdb_t *db)
 		/* pm_errno set in _alpm_db_path() */
 		return -1;
 	}
+
 	dbdir = opendir(dbpath);
 	if(dbdir == NULL) {
 		if(errno == ENOENT) {
@@ -382,7 +439,8 @@ static int local_db_populate(pmdb_t *db)
 			RET_ERR(db->handle, PM_ERR_MEMORY, -1);
 		}
 		/* split the db entry name */
-		if(_alpm_splitname(name, pkg) != 0) {
+		if(_alpm_splitname(name, &(pkg->name), &(pkg->version),
+					&(pkg->name_hash)) != 0) {
 			_alpm_log(db->handle, PM_LOG_ERROR, _("invalid name for database entry '%s'\n"),
 					name);
 			_alpm_pkg_free(pkg);
@@ -867,62 +925,9 @@ int _alpm_local_db_remove(pmdb_t *db, pmpkg_t *info)
 	return ret;
 }
 
-static int local_db_version(pmdb_t *db)
-{
-	struct dirent *ent = NULL;
-	const char *dbpath;
-	DIR *dbdir;
-	int version;
-
-	dbpath = _alpm_db_path(db);
-	if(dbpath == NULL) {
-		RET_ERR(db->handle, PM_ERR_DB_OPEN, -1);
-	}
-	dbdir = opendir(dbpath);
-	if(dbdir == NULL) {
-		if(errno == ENOENT) {
-			/* database dir doesn't exist yet */
-			version = 2;
-			goto done;
-		} else {
-			RET_ERR(db->handle, PM_ERR_DB_OPEN, -1);
-		}
-	}
-
-	while((ent = readdir(dbdir)) != NULL) {
-		const char *name = ent->d_name;
-		char path[PATH_MAX];
-
-		if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-			continue;
-		}
-		if(!is_dir(dbpath, ent)) {
-			continue;
-		}
-
-		snprintf(path, PATH_MAX, "%s%s/depends", dbpath, name);
-		if(access(path, F_OK) == 0) {
-			/* we found a depends file- bail */
-			version = 1;
-			goto done;
-		}
-	}
-	/* we found no depends file after full scan */
-	version = 2;
-
-done:
-	if(dbdir) {
-		closedir(dbdir);
-	}
-
-	_alpm_log(db->handle, PM_LOG_DEBUG, "local database version %d\n", version);
-	return version;
-}
-
 struct db_operations local_db_ops = {
 	.populate         = local_db_populate,
 	.unregister       = _alpm_db_unregister,
-	.version          = local_db_version,
 };
 
 pmdb_t *_alpm_db_register_local(pmhandle_t *handle)
@@ -933,10 +938,17 @@ pmdb_t *_alpm_db_register_local(pmhandle_t *handle)
 
 	db = _alpm_db_new("local", 1);
 	if(db == NULL) {
+		handle->pm_errno = PM_ERR_DB_CREATE;
 		return NULL;
 	}
 	db->ops = &local_db_ops;
 	db->handle = handle;
+
+	if(local_db_validate(db)) {
+		/* pm_errno set in local_db_validate() */
+		_alpm_db_free(db);
+		return NULL;
+	}
 
 	handle->db_local = db;
 	return db;

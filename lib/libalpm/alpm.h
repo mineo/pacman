@@ -357,9 +357,12 @@ alpm_list_t *alpm_option_get_syncdbs(pmhandle_t *handle);
 /** Register a sync database of packages.
  * @param handle the context handle
  * @param treename the name of the sync repository
+ * @param check_sig what level of signature checking to perform on the
+ * database; note that this must be a '.sig' file type verification
  * @return a pmdb_t* on success (the value), NULL on error
  */
-pmdb_t *alpm_db_register_sync(pmhandle_t *handle, const char *treename);
+pmdb_t *alpm_db_register_sync(pmhandle_t *handle, const char *treename,
+		pgp_verify_t check_sig);
 
 /** Unregister a package database.
  * @param db pointer to the package database to unregister
@@ -692,7 +695,6 @@ alpm_list_t *alpm_pkg_unused_deltas(pmpkg_t *pkg);
 int alpm_pkg_check_pgp_signature(pmpkg_t *pkg);
 
 int alpm_db_check_pgp_signature(pmdb_t *db);
-int alpm_db_set_pgp_verify(pmdb_t *db, pgp_verify_t verify);
 
 /*
  * Groups
@@ -999,6 +1001,7 @@ enum _pmerrno_t {
 	PM_ERR_DB_NULL,
 	PM_ERR_DB_NOT_NULL,
 	PM_ERR_DB_NOT_FOUND,
+	PM_ERR_DB_INVALID,
 	PM_ERR_DB_VERSION,
 	PM_ERR_DB_WRITE,
 	PM_ERR_DB_REMOVE,

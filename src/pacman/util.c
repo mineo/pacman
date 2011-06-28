@@ -68,9 +68,6 @@ int trans_init(pmtransflag_t flags)
 						"  running, you can remove %s\n"),
 					alpm_option_get_lockfile(config->handle));
 		}
-		else if(err == PM_ERR_DB_VERSION) {
-			fprintf(stderr, _("  try running pacman-db-upgrade\n"));
-		}
 
 		return -1;
 	}
@@ -592,7 +589,7 @@ void list_display(const char *title, const alpm_list_t *list)
 		printf("%s", str);
 		cols += string_length(str);
 		for(i = alpm_list_next(list); i; i = alpm_list_next(i)) {
-			const char *str = alpm_list_getdata(i);
+			str = alpm_list_getdata(i);
 			int s = string_length(str);
 			/* wrap only if we have enough usable column space */
 			if(maxcols > len && cols + s + 2 >= maxcols) {

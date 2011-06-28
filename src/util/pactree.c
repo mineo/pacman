@@ -26,6 +26,8 @@
 #include <alpm.h>
 #include <alpm_list.h>
 
+#define LINE_MAX     512
+
 /* output */
 struct graph_style {
 	const char *provides;
@@ -75,7 +77,6 @@ static struct color_choices no_color = {
 
 /* globals */
 pmhandle_t *handle = NULL;
-pmdb_t *db_local;
 alpm_list_t *walked = NULL;
 alpm_list_t *provisions = NULL;
 
@@ -86,7 +87,76 @@ int graphviz = 0;
 int max_depth = -1;
 int reverse = 0;
 int unique = 0;
+int searchsyncs = 0;
 const char *dbpath = DBPATH;
+
+static char *strtrim(char *str)
+{
+	char *pch = str;
+
+	if(str == NULL || *str == '\0') {
+		/* string is empty, so we're done. */
+		return str;
+	}
+
+	while(isspace((unsigned char)*pch)) {
+		pch++;
+	}
+	if(pch != str) {
+		memmove(str, pch, (strlen(pch) + 1));
+	}
+
+	/* check if there wasn't anything but whitespace in the string. */
+	if(*str == '\0') {
+		return str;
+	}
+
+	pch = (str + (strlen(str) - 1));
+	while(isspace((unsigned char)*pch)) {
+		pch--;
+	}
+	*++pch = '\0';
+
+	return str;
+}
+
+static int register_syncs(void) {
+	FILE *fp;
+	char *ptr, *section = NULL;
+	char line[LINE_MAX];
+
+	fp = fopen(CONFFILE, "r");
+	if(!fp) {
+		return 1;
+	}
+
+	while(fgets(line, LINE_MAX, fp)) {
+		strtrim(line);
+
+		if(line[0] == '#' || !strlen(line)) {
+			continue;
+		}
+
+		if((ptr = strchr(line, '#'))) {
+			*ptr = '\0';
+			strtrim(line);
+		}
+
+		if(line[0] == '[' && line[strlen(line) - 1] == ']') {
+			free(section);
+			section = strndup(&line[1], strlen(line) - 2);
+
+			if(section && strcmp(section, "options") != 0) {
+				alpm_db_register_sync(handle, section, PM_PGP_VERIFY_OPTIONAL);
+			}
+		}
+	}
+
+	free(section);
+	fclose(fp);
+
+	return 0;
+}
 
 static int parse_options(int argc, char *argv[])
 {
@@ -101,11 +171,12 @@ static int parse_options(int argc, char *argv[])
 		{"help",    no_argument,          0, 'h'},
 		{"linear",  no_argument,          0, 'l'},
 		{"reverse", no_argument,          0, 'r'},
+		{"sync",    no_argument,          0, 'S'},
 		{"unique",  no_argument,          0, 'u'},
 		{0, 0, 0, 0}
 	};
 
-	while((opt = getopt_long(argc, argv, "b:cd:ghlru", opts, &option_index))) {
+	while((opt = getopt_long(argc, argv, "b:cd:ghlrsu", opts, &option_index))) {
 		if(opt < 0) {
 			break;
 		}
@@ -133,6 +204,9 @@ static int parse_options(int argc, char *argv[])
 				break;
 			case 'r':
 				reverse = 1;
+				break;
+			case 's':
+				searchsyncs = 1;
 				break;
 			case 'u':
 				unique = 1;
@@ -162,6 +236,7 @@ static void usage(void)
 			"  -g, --graph          generate output for graphviz's dot\n"
 			"  -l, --linear         enable linear output\n"
 			"  -r, --reverse        show reverse dependencies\n"
+			"  -s, --sync           search sync DBs instead of local\n"
 			"  -u, --unique         show dependencies with no duplicates (implies -l)\n\n"
 			"  -h, --help           display this help message\n");
 }
@@ -241,15 +316,27 @@ static void print_end(void)
 	}
 }
 
+static pmpkg_t *get_pkg_from_dbs(alpm_list_t *dbs, const char *needle) {
+	alpm_list_t *i;
+	pmpkg_t *ret;
+
+	for(i = dbs; i; i = alpm_list_next(i)) {
+		ret = alpm_db_get_pkg(alpm_list_getdata(i), needle);
+		if(ret) {
+			return ret;
+		}
+	}
+	return NULL;
+}
 
 /**
  * walk dependencies in reverse, showing packages which require the target
  */
-static void walk_reverse_deps(pmpkg_t *pkg, int depth)
+static void walk_reverse_deps(alpm_list_t *dblist, pmpkg_t *pkg, int depth)
 {
 	alpm_list_t *required_by, *i;
 
-	if((max_depth >= 0) && (depth == max_depth + 1)) {
+	if(!pkg || ((max_depth >= 0) && (depth == max_depth + 1))) {
 		return;
 	}
 
@@ -267,7 +354,7 @@ static void walk_reverse_deps(pmpkg_t *pkg, int depth)
 			}
 		} else {
 			print(alpm_pkg_get_name(pkg), pkgname, NULL, depth);
-			walk_reverse_deps(alpm_db_get_pkg(db_local, pkgname), depth + 1);
+			walk_reverse_deps(dblist, get_pkg_from_dbs(dblist, pkgname), depth + 1);
 		}
 	}
 
@@ -277,7 +364,7 @@ static void walk_reverse_deps(pmpkg_t *pkg, int depth)
 /**
  * walk dependencies, showing dependencies of the target
  */
-static void walk_deps(pmpkg_t *pkg, int depth)
+static void walk_deps(alpm_list_t *dblist, pmpkg_t *pkg, int depth)
 {
 	alpm_list_t *i;
 
@@ -289,8 +376,7 @@ static void walk_deps(pmpkg_t *pkg, int depth)
 
 	for(i = alpm_pkg_get_depends(pkg); i; i = alpm_list_next(i)) {
 		pmdepend_t *depend = alpm_list_getdata(i);
-		pmpkg_t *provider = alpm_find_satisfier(alpm_db_get_pkgcache(db_local),
-				depend->name);
+		pmpkg_t *provider = alpm_find_dbs_satisfier(handle, dblist, depend->name);
 
 		if(provider) {
 			const char *provname = alpm_pkg_get_name(provider);
@@ -303,7 +389,7 @@ static void walk_deps(pmpkg_t *pkg, int depth)
 				}
 			} else {
 				print(alpm_pkg_get_name(pkg), provname, depend->name, depth);
-				walk_deps(provider, depth + 1);
+				walk_deps(dblist, provider, depth + 1);
 			}
 		} else {
 			/* unresolvable package */
@@ -314,10 +400,11 @@ static void walk_deps(pmpkg_t *pkg, int depth)
 
 int main(int argc, char *argv[])
 {
-	int ret = 0;
+	int freelist = 0, ret = 0;
 	enum _pmerrno_t err;
 	const char *target_name;
 	pmpkg_t *pkg;
+	alpm_list_t *dblist = NULL;
 
 	if(parse_options(argc, argv) != 0) {
 		usage();
@@ -333,12 +420,22 @@ int main(int argc, char *argv[])
 		goto finish;
 	}
 
-	db_local = alpm_option_get_localdb(handle);
+	if(searchsyncs) {
+		if(register_syncs() != 0) {
+			fprintf(stderr, "error: failed to register sync DBs\n");
+			ret = 1;
+			goto finish;
+		}
+		dblist = alpm_option_get_syncdbs(handle);
+	} else {
+		dblist = alpm_list_add(dblist, alpm_option_get_localdb(handle));
+		freelist = 1;
+	}
 
 	/* we only care about the first non option arg for walking */
 	target_name = argv[optind];
 
-	pkg = alpm_find_satisfier(alpm_db_get_pkgcache(db_local), target_name);
+	pkg = alpm_find_dbs_satisfier(handle, dblist, target_name);
 	if(!pkg) {
 		fprintf(stderr, "error: package '%s' not found\n", target_name);
 		ret = 1;
@@ -348,12 +445,16 @@ int main(int argc, char *argv[])
 	print_start(alpm_pkg_get_name(pkg), target_name);
 
 	if(reverse) {
-		walk_reverse_deps(pkg, 1);
+		walk_reverse_deps(dblist, pkg, 1);
 	} else {
-		walk_deps(pkg, 1);
+		walk_deps(dblist, pkg, 1);
 	}
 
 	print_end();
+
+	if(freelist) {
+		alpm_list_free(dblist);
+	}
 
 finish:
 	cleanup();

@@ -283,10 +283,6 @@ static int sync_synctree(int level, alpm_list_t *syncs)
 	alpm_list_t *i;
 	int success = 0, ret;
 
-	if(trans_init(0) == -1) {
-		return 0;
-	}
-
 	for(i = syncs; i; i = alpm_list_next(i)) {
 		pmdb_t *db = alpm_list_getdata(i);
 
@@ -302,9 +298,6 @@ static int sync_synctree(int level, alpm_list_t *syncs)
 		}
 	}
 
-	if(trans_release() == -1) {
-		return 0;
-	}
 	/* We should always succeed if at least one DB was upgraded - we may possibly
 	 * fail later with unresolved deps, but that should be rare, and would be
 	 * expected
@@ -450,7 +443,6 @@ static int sync_info(alpm_list_t *syncs, alpm_list_t *targets)
 
 	if(targets) {
 		for(i = targets; i; i = alpm_list_next(i)) {
-			pmdb_t *db = NULL;
 			int foundpkg = 0;
 
 			char target[512]; /* TODO is this enough space? */
@@ -459,6 +451,7 @@ static int sync_info(alpm_list_t *syncs, alpm_list_t *targets)
 			strncpy(target, i->data, 512);
 			pkgstr = strchr(target, '/');
 			if(pkgstr) {
+				pmdb_t *db = NULL;
 				repo = target;
 				*pkgstr = '\0';
 				++pkgstr;
@@ -774,7 +767,6 @@ static int sync_trans(alpm_list_t *targets)
 		pm_fprintf(stderr, PM_LOG_ERROR, _("failed to prepare transaction (%s)\n"),
 		        alpm_strerror(err));
 		switch(err) {
-			alpm_list_t *i;
 			case PM_ERR_PKG_INVALID_ARCH:
 				for(i = data; i; i = alpm_list_next(i)) {
 					char *pkg = alpm_list_getdata(i);
@@ -842,7 +834,6 @@ static int sync_trans(alpm_list_t *targets)
 		pm_fprintf(stderr, PM_LOG_ERROR, _("failed to commit transaction (%s)\n"),
 		        alpm_strerror(err));
 		switch(err) {
-			alpm_list_t *i;
 			case PM_ERR_FILE_CONFLICTS:
 				for(i = data; i; i = alpm_list_next(i)) {
 					pmfileconflict_t *conflict = alpm_list_getdata(i);
