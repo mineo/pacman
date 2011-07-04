@@ -34,18 +34,19 @@
 /* libalpm */
 #include "conflict.h"
 #include "alpm_list.h"
+#include "alpm.h"
 #include "handle.h"
 #include "trans.h"
 #include "util.h"
 #include "log.h"
 #include "deps.h"
 
-static pmconflict_t *conflict_new(const char *package1, const char *package2,
+static alpm_conflict_t *conflict_new(const char *package1, const char *package2,
 		const char *reason)
 {
-	pmconflict_t *conflict;
+	alpm_conflict_t *conflict;
 
-	MALLOC(conflict, sizeof(pmconflict_t), return NULL);
+	MALLOC(conflict, sizeof(alpm_conflict_t), return NULL);
 
 	STRDUP(conflict->package1, package1, return NULL);
 	STRDUP(conflict->package2, package2, return NULL);
@@ -54,7 +55,7 @@ static pmconflict_t *conflict_new(const char *package1, const char *package2,
 	return conflict;
 }
 
-void _alpm_conflict_free(pmconflict_t *conflict)
+void _alpm_conflict_free(alpm_conflict_t *conflict)
 {
 	FREE(conflict->package2);
 	FREE(conflict->package1);
@@ -62,10 +63,10 @@ void _alpm_conflict_free(pmconflict_t *conflict)
 	FREE(conflict);
 }
 
-pmconflict_t *_alpm_conflict_dup(const pmconflict_t *conflict)
+alpm_conflict_t *_alpm_conflict_dup(const alpm_conflict_t *conflict)
 {
-	pmconflict_t *newconflict;
-	CALLOC(newconflict, 1, sizeof(pmconflict_t), );
+	alpm_conflict_t *newconflict;
+	CALLOC(newconflict, 1, sizeof(alpm_conflict_t), return NULL);
 
 	STRDUP(newconflict->package1, conflict->package1, return NULL);
 	STRDUP(newconflict->package2, conflict->package2, return NULL);
@@ -74,14 +75,14 @@ pmconflict_t *_alpm_conflict_dup(const pmconflict_t *conflict)
 	return newconflict;
 }
 
-static int conflict_isin(pmconflict_t *needle, alpm_list_t *haystack)
+static int conflict_isin(alpm_conflict_t *needle, alpm_list_t *haystack)
 {
 	alpm_list_t *i;
 	const char *npkg1 = needle->package1;
 	const char *npkg2 = needle->package2;
 
 	for(i = haystack; i; i = i->next) {
-		pmconflict_t *conflict = i->data;
+		alpm_conflict_t *conflict = i->data;
 		const char *cpkg1 = conflict->package1;
 		const char *cpkg2 = conflict->package2;
 		if((strcmp(cpkg1, npkg1) == 0  && strcmp(cpkg2, npkg2) == 0)
@@ -100,14 +101,14 @@ static int conflict_isin(pmconflict_t *needle, alpm_list_t *haystack)
  * @param pkg2 package causing conflict
  * @param reason reason for this conflict
  */
-static int add_conflict(pmhandle_t *handle, alpm_list_t **baddeps,
+static int add_conflict(alpm_handle_t *handle, alpm_list_t **baddeps,
 		const char *pkg1, const char *pkg2, const char *reason)
 {
-	pmconflict_t *conflict = conflict_new(pkg1, pkg2, reason);
+	alpm_conflict_t *conflict = conflict_new(pkg1, pkg2, reason);
 	if(!conflict) {
 		return -1;
 	}
-	_alpm_log(handle, PM_LOG_DEBUG, "package %s conflicts with %s (by %s)\n",
+	_alpm_log(handle, ALPM_LOG_DEBUG, "package %s conflicts with %s (by %s)\n",
 			pkg1, pkg2, reason);
 	if(!conflict_isin(conflict, *baddeps)) {
 		*baddeps = alpm_list_add(*baddeps, conflict);
@@ -129,7 +130,7 @@ static int add_conflict(pmhandle_t *handle, alpm_list_t **baddeps,
  * @param baddeps list to store conflicts
  * @param order if >= 0 the conflict order is preserved, if < 0 it's reversed
  */
-static void check_conflict(pmhandle_t *handle,
+static void check_conflict(alpm_handle_t *handle,
 		alpm_list_t *list1, alpm_list_t *list2,
 		alpm_list_t **baddeps, int order) {
 	alpm_list_t *i;
@@ -138,17 +139,17 @@ static void check_conflict(pmhandle_t *handle,
 		return;
 	}
 	for(i = list1; i; i = i->next) {
-		pmpkg_t *pkg1 = i->data;
+		alpm_pkg_t *pkg1 = i->data;
 		const char *pkg1name = alpm_pkg_get_name(pkg1);
 		alpm_list_t *j;
 
 		for(j = alpm_pkg_get_conflicts(pkg1); j; j = j->next) {
 			const char *conflict = j->data;
 			alpm_list_t *k;
-			pmdepend_t *parsed_conflict = _alpm_splitdep(conflict);
+			alpm_depend_t *parsed_conflict = _alpm_splitdep(conflict);
 
 			for(k = list2; k; k = k->next) {
-				pmpkg_t *pkg2 = k->data;
+				alpm_pkg_t *pkg2 = k->data;
 				const char *pkg2name = alpm_pkg_get_name(pkg2);
 
 				if(strcmp(pkg1name, pkg2name) == 0) {
@@ -170,11 +171,11 @@ static void check_conflict(pmhandle_t *handle,
 }
 
 /* Check for inter-conflicts */
-alpm_list_t *_alpm_innerconflicts(pmhandle_t *handle, alpm_list_t *packages)
+alpm_list_t *_alpm_innerconflicts(alpm_handle_t *handle, alpm_list_t *packages)
 {
 	alpm_list_t *baddeps = NULL;
 
-	_alpm_log(handle, PM_LOG_DEBUG, "check targets vs targets\n");
+	_alpm_log(handle, ALPM_LOG_DEBUG, "check targets vs targets\n");
 	check_conflict(handle, packages, packages, &baddeps, 0);
 
 	return baddeps;
@@ -184,7 +185,7 @@ alpm_list_t *_alpm_innerconflicts(pmhandle_t *handle, alpm_list_t *packages)
  * In case of conflict the package1 field of pmdepconflict_t contains
  * the target package, package2 field contains the local package
  */
-alpm_list_t *_alpm_outerconflicts(pmdb_t *db, alpm_list_t *packages)
+alpm_list_t *_alpm_outerconflicts(alpm_db_t *db, alpm_list_t *packages)
 {
 	alpm_list_t *baddeps = NULL;
 
@@ -196,9 +197,9 @@ alpm_list_t *_alpm_outerconflicts(pmdb_t *db, alpm_list_t *packages)
 			packages, _alpm_pkg_cmp);
 
 	/* two checks to be done here for conflicts */
-	_alpm_log(db->handle, PM_LOG_DEBUG, "check targets vs db\n");
+	_alpm_log(db->handle, ALPM_LOG_DEBUG, "check targets vs db\n");
 	check_conflict(db->handle, packages, dblist, &baddeps, 1);
-	_alpm_log(db->handle, PM_LOG_DEBUG, "check db vs targets\n");
+	_alpm_log(db->handle, ALPM_LOG_DEBUG, "check db vs targets\n");
 	check_conflict(db->handle, dblist, packages, &baddeps, -1);
 
 	alpm_list_free(dblist);
@@ -209,9 +210,9 @@ alpm_list_t *_alpm_outerconflicts(pmdb_t *db, alpm_list_t *packages)
  *
  * @param handle the context handle
  * @param pkglist the list of packages to check
- * @return an alpm_list_t of pmconflict_t
+ * @return an alpm_list_t of alpm_conflict_t
  */
-alpm_list_t SYMEXPORT *alpm_checkconflicts(pmhandle_t *handle,
+alpm_list_t SYMEXPORT *alpm_checkconflicts(alpm_handle_t *handle,
 		alpm_list_t *pkglist)
 {
 	CHECK_HANDLE(handle, return NULL);
@@ -222,6 +223,7 @@ static const int DIFFERENCE = 0;
 static const int INTERSECT = 1;
 /* Returns a set operation on the provided two lists of files.
  * Pre-condition: both lists are sorted!
+ * When done, free the list but NOT the contained data.
  *
  * Operations:
  *   DIFFERENCE - a difference operation is performed. filesA - filesB.
@@ -234,8 +236,10 @@ static alpm_list_t *filelist_operation(alpm_list_t *filesA, alpm_list_t *filesB,
 	alpm_list_t *pA = filesA, *pB = filesB;
 
 	while(pA && pB) {
-		const char *strA = pA->data;
-		const char *strB = pB->data;
+		alpm_file_t *fileA = pA->data;
+		alpm_file_t *fileB = pB->data;
+		const char *strA = fileA->name;
+		const char *strB = fileB->name;
 		/* skip directories, we don't care about them */
 		if(strA[strlen(strA)-1] == '/') {
 			pA = pA->next;
@@ -246,7 +250,7 @@ static alpm_list_t *filelist_operation(alpm_list_t *filesA, alpm_list_t *filesB,
 			if(cmp < 0) {
 				if(operation == DIFFERENCE) {
 					/* item only in filesA, qualifies as a difference */
-					ret = alpm_list_add(ret, strdup(strA));
+					ret = alpm_list_add(ret, fileA);
 				}
 				pA = pA->next;
 			} else if(cmp > 0) {
@@ -254,7 +258,7 @@ static alpm_list_t *filelist_operation(alpm_list_t *filesA, alpm_list_t *filesB,
 			} else {
 				if(operation == INTERSECT) {
 					/* item in both, qualifies as an intersect */
-					ret = alpm_list_add(ret, strdup(strA));
+					ret = alpm_list_add(ret, fileA);
 				}
 				pA = pA->next;
 				pB = pB->next;
@@ -264,10 +268,11 @@ static alpm_list_t *filelist_operation(alpm_list_t *filesA, alpm_list_t *filesB,
 
 	/* if doing a difference, ensure we have completely emptied pA */
 	while(operation == DIFFERENCE && pA) {
-		const char *strA = pA->data;
+		alpm_file_t *fileA = pA->data;
+		const char *strA = fileA->name;
 		/* skip directories */
 		if(strA[strlen(strA)-1] != '/') {
-			ret = alpm_list_add(ret, strdup(strA));
+			ret = alpm_list_add(ret, fileA);
 		}
 		pA = pA->next;
 	}
@@ -275,17 +280,17 @@ static alpm_list_t *filelist_operation(alpm_list_t *filesA, alpm_list_t *filesB,
 	return ret;
 }
 
-/* Adds pmfileconflict_t to a conflicts list. Pass the conflicts list, type
- * (either PM_FILECONFLICT_TARGET or PM_FILECONFLICT_FILESYSTEM), a file
+/* Adds alpm_fileconflict_t to a conflicts list. Pass the conflicts list, type
+ * (either ALPM_FILECONFLICT_TARGET or ALPM_FILECONFLICT_FILESYSTEM), a file
  * string, and either two package names or one package name and NULL. This is
  * a wrapper for former functionality that was done inline.
  */
-static alpm_list_t *add_fileconflict(pmhandle_t *handle,
-		alpm_list_t *conflicts, pmfileconflicttype_t type, const char *filestr,
+static alpm_list_t *add_fileconflict(alpm_handle_t *handle,
+		alpm_list_t *conflicts, alpm_fileconflicttype_t type, const char *filestr,
 		const char *name1, const char *name2)
 {
-	pmfileconflict_t *conflict;
-	MALLOC(conflict, sizeof(pmfileconflict_t), goto error);
+	alpm_fileconflict_t *conflict;
+	MALLOC(conflict, sizeof(alpm_fileconflict_t), goto error);
 
 	conflict->type = type;
 	STRDUP(conflict->target, name1, goto error);
@@ -297,16 +302,16 @@ static alpm_list_t *add_fileconflict(pmhandle_t *handle,
 	}
 
 	conflicts = alpm_list_add(conflicts, conflict);
-	_alpm_log(handle, PM_LOG_DEBUG, "found file conflict %s, packages %s and %s\n",
+	_alpm_log(handle, ALPM_LOG_DEBUG, "found file conflict %s, packages %s and %s\n",
 	          filestr, name1, name2 ? name2 : "(filesystem)");
 
 	return conflicts;
 
 error:
-	RET_ERR(handle, PM_ERR_MEMORY, conflicts);
+	RET_ERR(handle, ALPM_ERR_MEMORY, conflicts);
 }
 
-void _alpm_fileconflict_free(pmfileconflict_t *conflict)
+void _alpm_fileconflict_free(alpm_fileconflict_t *conflict)
 {
 	FREE(conflict->ctarget);
 	FREE(conflict->file);
@@ -314,13 +319,27 @@ void _alpm_fileconflict_free(pmfileconflict_t *conflict)
 	FREE(conflict);
 }
 
-static int dir_belongsto_pkg(const char *root, const char *dirpath,
-		pmpkg_t *pkg)
+const alpm_file_t *_alpm_filelist_contains(const alpm_list_t *haystack,
+		const char *needle)
 {
-	struct dirent *ent = NULL;
+	const alpm_list_t *lp = haystack;
+	while(lp) {
+		const alpm_file_t *file = lp->data;
+		if(strcmp(file->name, needle) == 0) {
+			return file;
+		}
+		lp = lp->next;
+	}
+	return NULL;
+}
+
+static int dir_belongsto_pkg(const char *root, const char *dirpath,
+		alpm_pkg_t *pkg)
+{
 	struct stat sbuf;
 	char path[PATH_MAX];
 	char abspath[PATH_MAX];
+	struct dirent *ent = NULL;
 	DIR *dir;
 
 	snprintf(abspath, PATH_MAX, "%s%s", root, dirpath);
@@ -328,6 +347,7 @@ static int dir_belongsto_pkg(const char *root, const char *dirpath,
 	if(dir == NULL) {
 		return 1;
 	}
+
 	while((ent = readdir(dir)) != NULL) {
 		const char *name = ent->d_name;
 
@@ -347,7 +367,7 @@ static int dir_belongsto_pkg(const char *root, const char *dirpath,
 				return 0;
 			}
 		} else {
-			if(alpm_list_find_str(alpm_pkg_get_files(pkg), path)) {
+			if(_alpm_filelist_contains(alpm_pkg_get_files(pkg), path)) {
 				continue;
 			} else {
 				closedir(dir);
@@ -362,13 +382,13 @@ static int dir_belongsto_pkg(const char *root, const char *dirpath,
 /* Find file conflicts that may occur during the transaction with two checks:
  * 1: check every target against every target
  * 2: check every target against the filesystem */
-alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
+alpm_list_t *_alpm_db_find_fileconflicts(alpm_handle_t *handle,
 		alpm_list_t *upgrade, alpm_list_t *remove)
 {
-	alpm_list_t *i, *j, *conflicts = NULL;
+	alpm_list_t *i, *conflicts = NULL;
 	size_t numtargs = alpm_list_count(upgrade);
 	size_t current;
-	pmtrans_t *trans = handle->trans;
+	alpm_trans_t *trans = handle->trans;
 
 	if(!upgrade) {
 		return NULL;
@@ -379,48 +399,42 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 	 * here as we do when we actually extract files in add.c with our 12
 	 * different cases. */
 	for(current = 0, i = upgrade; i; i = i->next, current++) {
-		alpm_list_t *k, *tmpfiles;
-		pmpkg_t *p1, *p2, *dbpkg;
-		char path[PATH_MAX];
-
-		p1 = i->data;
-		if(!p1) {
-			continue;
-		}
+		alpm_pkg_t *p1 = i->data;
+		alpm_list_t *j, *tmpfiles;
+		alpm_pkg_t *dbpkg;
 
 		int percent = (current * 100) / numtargs;
-		PROGRESS(trans, PM_TRANS_PROGRESS_CONFLICTS_START, "", percent,
+		PROGRESS(trans, ALPM_TRANS_PROGRESS_CONFLICTS_START, "", percent,
 		         numtargs, current);
 		/* CHECK 1: check every target against every target */
-		_alpm_log(handle, PM_LOG_DEBUG, "searching for file conflicts: %s\n",
+		_alpm_log(handle, ALPM_LOG_DEBUG, "searching for file conflicts: %s\n",
 								alpm_pkg_get_name(p1));
 		for(j = i->next; j; j = j->next) {
 			alpm_list_t *common_files;
-			p2 = j->data;
-			if(!p2) {
-				continue;
-			}
+			alpm_pkg_t *p2 = j->data;
 			common_files = filelist_operation(alpm_pkg_get_files(p1),
 					alpm_pkg_get_files(p2), INTERSECT);
 
 			if(common_files) {
+				alpm_list_t *k;
+				char path[PATH_MAX];
 				for(k = common_files; k; k = k->next) {
 					snprintf(path, PATH_MAX, "%s%s", handle->root, (char *)k->data);
 					conflicts = add_fileconflict(handle, conflicts,
-							PM_FILECONFLICT_TARGET, path,
+							ALPM_FILECONFLICT_TARGET, path,
 							alpm_pkg_get_name(p1), alpm_pkg_get_name(p2));
-					if(handle->pm_errno == PM_ERR_MEMORY) {
+					if(handle->pm_errno == ALPM_ERR_MEMORY) {
 						FREELIST(conflicts);
 						FREELIST(common_files);
 						return NULL;
 					}
 				}
-				FREELIST(common_files);
+				alpm_list_free(common_files);
 			}
 		}
 
 		/* CHECK 2: check every target against the filesystem */
-		_alpm_log(handle, PM_LOG_DEBUG, "searching for filesystem conflicts: %s\n",
+		_alpm_log(handle, ALPM_LOG_DEBUG, "searching for filesystem conflicts: %s\n",
 				p1->name);
 		dbpkg = _alpm_db_get_pkgfromcache(handle->db_local, p1->name);
 
@@ -439,10 +453,14 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 		}
 
 		for(j = tmpfiles; j; j = j->next) {
-			struct stat lsbuf;
-			const char *filestr = j->data, *relative_path;
+			alpm_file_t *file = j->data;
+			const char *filestr = file->name;
+			const char *relative_path;
+			alpm_list_t *k;
 			/* have we acted on this conflict? */
 			int resolved_conflict = 0;
+			struct stat lsbuf;
+			char path[PATH_MAX];
 
 			snprintf(path, PATH_MAX, "%s%s", handle->root, filestr);
 
@@ -451,15 +469,15 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 				continue;
 			}
 
-			if(path[strlen(path) - 1] == '/') {
+			if(S_ISDIR(file->mode)) {
 				struct stat sbuf;
 				if(S_ISDIR(lsbuf.st_mode)) {
-					_alpm_log(handle, PM_LOG_DEBUG, "%s is a directory, not a conflict\n", path);
+					_alpm_log(handle, ALPM_LOG_DEBUG, "%s is a directory, not a conflict\n", path);
 					continue;
 				}
 				stat(path, &sbuf);
 				if(S_ISLNK(lsbuf.st_mode) && S_ISDIR(sbuf.st_mode)) {
-					_alpm_log(handle, PM_LOG_DEBUG,
+					_alpm_log(handle, ALPM_LOG_DEBUG,
 							"%s is a symlink to a dir, hopefully not a conflict\n", path);
 					continue;
 				}
@@ -469,38 +487,37 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 				path[strlen(path) - 1] = '\0';
 			}
 
-			_alpm_log(handle, PM_LOG_DEBUG, "checking possible conflict: %s\n", path);
+			_alpm_log(handle, ALPM_LOG_DEBUG, "checking possible conflict: %s\n", path);
 			relative_path = path + strlen(handle->root);
 
 			/* Check remove list (will we remove the conflicting local file?) */
 			for(k = remove; k && !resolved_conflict; k = k->next) {
-				pmpkg_t *rempkg = k->data;
-				if(alpm_list_find_str(alpm_pkg_get_files(rempkg), relative_path)) {
-					_alpm_log(handle, PM_LOG_DEBUG,
-							"local file will be removed, not a conflict: %s\n",
-							relative_path);
+				alpm_pkg_t *rempkg = k->data;
+				if(rempkg && _alpm_filelist_contains(alpm_pkg_get_files(rempkg),
+							relative_path)) {
+					_alpm_log(handle, ALPM_LOG_DEBUG,
+							"local file will be removed, not a conflict: %s\n", path);
 					resolved_conflict = 1;
 				}
 			}
 
 			/* Look at all the targets to see if file has changed hands */
 			for(k = upgrade; k && !resolved_conflict; k = k->next) {
-				p2 = k->data;
+				alpm_pkg_t *p2 = k->data;
 				if(!p2 || strcmp(p1->name, p2->name) == 0) {
 					continue;
 				}
-				pmpkg_t *localp2 = _alpm_db_get_pkgfromcache(handle->db_local, p2->name);
+				alpm_pkg_t *localp2 = _alpm_db_get_pkgfromcache(handle->db_local, p2->name);
 
 				/* localp2->files will be removed (target conflicts are handled by CHECK 1) */
-				if(localp2 && alpm_list_find_str(alpm_pkg_get_files(localp2), filestr)) {
+				if(localp2 && _alpm_filelist_contains(alpm_pkg_get_files(localp2), filestr)) {
 					/* skip removal of file, but not add. this will prevent a second
 					 * package from removing the file when it was already installed
 					 * by its new owner (whether the file is in backup array or not */
 					handle->trans->skip_remove =
 						alpm_list_add(handle->trans->skip_remove, strdup(filestr));
-					_alpm_log(handle, PM_LOG_DEBUG,
-							"file changed packages, adding to remove skiplist: %s\n",
-							filestr);
+					_alpm_log(handle, ALPM_LOG_DEBUG,
+							"file changed packages, adding to remove skiplist: %s\n", path);
 					resolved_conflict = 1;
 				}
 			}
@@ -509,8 +526,8 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 			if(!resolved_conflict && S_ISDIR(lsbuf.st_mode) && dbpkg) {
 				char *dir = malloc(strlen(filestr) + 2);
 				sprintf(dir, "%s/", filestr);
-				if(alpm_list_find_str(alpm_pkg_get_files(dbpkg),dir)) {
-					_alpm_log(handle, PM_LOG_DEBUG,
+				if(_alpm_filelist_contains(alpm_pkg_get_files(dbpkg), dir)) {
+					_alpm_log(handle, ALPM_LOG_DEBUG,
 							"check if all files in %s belongs to %s\n",
 							dir, dbpkg->name);
 					resolved_conflict = dir_belongsto_pkg(handle->root, filestr, dbpkg);
@@ -526,7 +543,7 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 					continue;
 				}
 				relative_rpath = rpath + strlen(handle->root);
-				if(alpm_list_find_str(alpm_pkg_get_files(dbpkg), relative_rpath)) {
+				if(_alpm_filelist_contains(alpm_pkg_get_files(dbpkg), relative_rpath)) {
 					resolved_conflict = 1;
 				}
 				free(rpath);
@@ -534,12 +551,12 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 
 			if(!resolved_conflict) {
 				conflicts = add_fileconflict(handle, conflicts,
-						PM_FILECONFLICT_FILESYSTEM, path, p1->name, NULL);
-				if(handle->pm_errno == PM_ERR_MEMORY) {
+						ALPM_FILECONFLICT_FILESYSTEM, path, p1->name, NULL);
+				if(handle->pm_errno == ALPM_ERR_MEMORY) {
 					FREELIST(conflicts);
 					if(dbpkg) {
 						/* only freed if it was generated from filelist_operation() */
-						FREELIST(tmpfiles);
+						alpm_list_free(tmpfiles);
 					}
 					return NULL;
 				}
@@ -547,10 +564,10 @@ alpm_list_t *_alpm_db_find_fileconflicts(pmhandle_t *handle,
 		}
 		if(dbpkg) {
 			/* only freed if it was generated from filelist_operation() */
-			FREELIST(tmpfiles);
+			alpm_list_free(tmpfiles);
 		}
 	}
-	PROGRESS(trans, PM_TRANS_PROGRESS_CONFLICTS_START, "", 100,
+	PROGRESS(trans, ALPM_TRANS_PROGRESS_CONFLICTS_START, "", 100,
 			numtargs, current);
 
 	return conflicts;

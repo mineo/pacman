@@ -207,17 +207,17 @@ class pmdb(object):
             make_section(data, "MD5SUM", pkg.md5sum)
             make_section(data, "PGPSIG", pkg.pgpsig)
 
-        entry["desc"] = "\n".join(data) + "\n"
+        entry["desc"] = "\n".join(data)
 
         # files and install
         if self.is_local:
             data = []
             make_section(data, "FILES", pkg.full_filelist())
             make_section(data, "BACKUP", pkg.local_backup_entries())
-            entry["files"] = "\n".join(data) + "\n"
+            entry["files"] = "\n".join(data)
 
             if any(pkg.install.values()):
-                entry["install"] = pkg.installfile() + "\n"
+                entry["install"] = pkg.installfile()
 
         return entry
 
@@ -229,8 +229,7 @@ class pmdb(object):
                 path = os.path.join(self.dbdir, pkg.fullname())
                 util.mkdir(path)
                 for name, data in entry.iteritems():
-                    filename = os.path.join(path, name)
-                    util.mkfile(filename, data)
+                    util.mkfile(path, name, data)
 
         if self.dbfile:
             tar = tarfile.open(self.dbfile, "w:gz")

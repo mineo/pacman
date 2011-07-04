@@ -218,7 +218,7 @@ char *_alpm_strtrim(char *str)
  * @param filename a file within the archive to unpack
  * @return 0 on success, 1 on failure
  */
-int _alpm_unpack_single(pmhandle_t *handle, const char *archive,
+int _alpm_unpack_single(alpm_handle_t *handle, const char *archive,
 		const char *prefix, const char *filename)
 {
 	alpm_list_t *list = NULL;
@@ -243,7 +243,7 @@ int _alpm_unpack_single(pmhandle_t *handle, const char *archive,
  *
  * @return 0 on success, 1 on failure
  */
-int _alpm_unpack(pmhandle_t *handle, const char *archive, const char *prefix,
+int _alpm_unpack(alpm_handle_t *handle, const char *archive, const char *prefix,
 		alpm_list_t *list, int breakfirst)
 {
 	int ret = 0;
@@ -254,7 +254,7 @@ int _alpm_unpack(pmhandle_t *handle, const char *archive, const char *prefix,
 	int restore_cwd = 0;
 
 	if((_archive = archive_read_new()) == NULL) {
-		RET_ERR(handle, PM_ERR_LIBARCHIVE, 1);
+		RET_ERR(handle, ALPM_ERR_LIBARCHIVE, 1);
 	}
 
 	archive_read_support_compression_all(_archive);
@@ -262,23 +262,23 @@ int _alpm_unpack(pmhandle_t *handle, const char *archive, const char *prefix,
 
 	if(archive_read_open_filename(_archive, archive,
 				ARCHIVE_DEFAULT_BYTES_PER_BLOCK) != ARCHIVE_OK) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not open file %s: %s\n"), archive,
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not open file %s: %s\n"), archive,
 				archive_error_string(_archive));
-		RET_ERR(handle, PM_ERR_PKG_OPEN, 1);
+		RET_ERR(handle, ALPM_ERR_PKG_OPEN, 1);
 	}
 
 	oldmask = umask(0022);
 
 	/* save the cwd so we can restore it later */
 	if(getcwd(cwd, PATH_MAX) == NULL) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not get current working directory\n"));
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not get current working directory\n"));
 	} else {
 		restore_cwd = 1;
 	}
 
 	/* just in case our cwd was removed in the upgrade operation */
 	if(chdir(prefix) != 0) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not change directory to %s (%s)\n"),
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not change directory to %s (%s)\n"),
 				prefix, strerror(errno));
 		ret = 1;
 		goto cleanup;
@@ -300,7 +300,7 @@ int _alpm_unpack(pmhandle_t *handle, const char *archive, const char *prefix,
 		/* If specific files were requested, skip entries that don't match. */
 		if(list) {
 			char *entry_prefix = strdup(entryname);
-			char *p = strstr(prefix,"/");
+			char *p = strstr(entry_prefix,"/");
 			if(p) {
 				*(p+1) = '\0';
 			}
@@ -313,7 +313,7 @@ int _alpm_unpack(pmhandle_t *handle, const char *archive, const char *prefix,
 				}
 				continue;
 			} else {
-				_alpm_log(handle, PM_LOG_DEBUG, "extracting: %s\n", entryname);
+				_alpm_log(handle, ALPM_LOG_DEBUG, "extracting: %s\n", entryname);
 			}
 		}
 
@@ -321,10 +321,10 @@ int _alpm_unpack(pmhandle_t *handle, const char *archive, const char *prefix,
 		int readret = archive_read_extract(_archive, entry, 0);
 		if(readret == ARCHIVE_WARN) {
 			/* operation succeeded but a non-critical error was encountered */
-			_alpm_log(handle, PM_LOG_WARNING, _("warning given when extracting %s (%s)\n"),
+			_alpm_log(handle, ALPM_LOG_WARNING, _("warning given when extracting %s (%s)\n"),
 					entryname, archive_error_string(_archive));
 		} else if(readret != ARCHIVE_OK) {
-			_alpm_log(handle, PM_LOG_ERROR, _("could not extract %s (%s)\n"),
+			_alpm_log(handle, ALPM_LOG_ERROR, _("could not extract %s (%s)\n"),
 					entryname, archive_error_string(_archive));
 			ret = 1;
 			goto cleanup;
@@ -339,7 +339,7 @@ cleanup:
 	umask(oldmask);
 	archive_read_finish(_archive);
 	if(restore_cwd && chdir(cwd) != 0) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not change directory to %s (%s)\n"),
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not change directory to %s (%s)\n"),
 				cwd, strerror(errno));
 	}
 	return ret;
@@ -388,7 +388,7 @@ int _alpm_rmrf(const char *path)
 	return 0;
 }
 
-int _alpm_logaction(pmhandle_t *handle, const char *fmt, va_list args)
+int _alpm_logaction(alpm_handle_t *handle, const char *fmt, va_list args)
 {
 	int ret = 0;
 
@@ -419,7 +419,7 @@ int _alpm_logaction(pmhandle_t *handle, const char *fmt, va_list args)
 	return ret;
 }
 
-int _alpm_run_chroot(pmhandle_t *handle, const char *path, char *const argv[])
+int _alpm_run_chroot(alpm_handle_t *handle, const char *path, char *const argv[])
 {
 	char cwd[PATH_MAX];
 	pid_t pid;
@@ -429,26 +429,26 @@ int _alpm_run_chroot(pmhandle_t *handle, const char *path, char *const argv[])
 
 	/* save the cwd so we can restore it later */
 	if(getcwd(cwd, PATH_MAX) == NULL) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not get current working directory\n"));
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not get current working directory\n"));
 	} else {
 		restore_cwd = 1;
 	}
 
 	/* just in case our cwd was removed in the upgrade operation */
 	if(chdir(handle->root) != 0) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not change directory to %s (%s)\n"),
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not change directory to %s (%s)\n"),
 				handle->root, strerror(errno));
 		goto cleanup;
 	}
 
-	_alpm_log(handle, PM_LOG_DEBUG, "executing \"%s\" under chroot \"%s\"\n",
+	_alpm_log(handle, ALPM_LOG_DEBUG, "executing \"%s\" under chroot \"%s\"\n",
 			path, handle->root);
 
 	/* Flush open fds before fork() to avoid cloning buffers */
 	fflush(NULL);
 
 	if(pipe(pipefd) == -1) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not create pipe (%s)\n"), strerror(errno));
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not create pipe (%s)\n"), strerror(errno));
 		retval = 1;
 		goto cleanup;
 	}
@@ -456,7 +456,7 @@ int _alpm_run_chroot(pmhandle_t *handle, const char *path, char *const argv[])
 	/* fork- parent and child each have seperate code blocks below */
 	pid = fork();
 	if(pid == -1) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not fork a new process (%s)\n"), strerror(errno));
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not fork a new process (%s)\n"), strerror(errno));
 		retval = 1;
 		goto cleanup;
 	}
@@ -500,14 +500,14 @@ int _alpm_run_chroot(pmhandle_t *handle, const char *path, char *const argv[])
 				if(fgets(line, PATH_MAX, pipe_file) == NULL)
 					break;
 				alpm_logaction(handle, "%s", line);
-				EVENT(handle->trans, PM_TRANS_EVT_SCRIPTLET_INFO, line, NULL);
+				EVENT(handle->trans, ALPM_TRANS_EVT_SCRIPTLET_INFO, line, NULL);
 			}
 			fclose(pipe_file);
 		}
 
 		while(waitpid(pid, &status, 0) == -1) {
 			if(errno != EINTR) {
-				_alpm_log(handle, PM_LOG_ERROR, _("call to waitpid failed (%s)\n"), strerror(errno));
+				_alpm_log(handle, ALPM_LOG_ERROR, _("call to waitpid failed (%s)\n"), strerror(errno));
 				retval = 1;
 				goto cleanup;
 			}
@@ -515,14 +515,14 @@ int _alpm_run_chroot(pmhandle_t *handle, const char *path, char *const argv[])
 
 		/* report error from above after the child has exited */
 		if(retval != 0) {
-			_alpm_log(handle, PM_LOG_ERROR, _("could not open pipe (%s)\n"), strerror(errno));
+			_alpm_log(handle, ALPM_LOG_ERROR, _("could not open pipe (%s)\n"), strerror(errno));
 			goto cleanup;
 		}
 		/* check the return status, make sure it is 0 (success) */
 		if(WIFEXITED(status)) {
-			_alpm_log(handle, PM_LOG_DEBUG, "call to waitpid succeeded\n");
+			_alpm_log(handle, ALPM_LOG_DEBUG, "call to waitpid succeeded\n");
 			if(WEXITSTATUS(status) != 0) {
-				_alpm_log(handle, PM_LOG_ERROR, _("command failed to execute correctly\n"));
+				_alpm_log(handle, ALPM_LOG_ERROR, _("command failed to execute correctly\n"));
 				retval = 1;
 			}
 		}
@@ -530,17 +530,17 @@ int _alpm_run_chroot(pmhandle_t *handle, const char *path, char *const argv[])
 
 cleanup:
 	if(restore_cwd && chdir(cwd) != 0) {
-		_alpm_log(handle, PM_LOG_ERROR, _("could not change directory to %s (%s)\n"), cwd, strerror(errno));
+		_alpm_log(handle, ALPM_LOG_ERROR, _("could not change directory to %s (%s)\n"), cwd, strerror(errno));
 	}
 
 	return retval;
 }
 
-int _alpm_ldconfig(pmhandle_t *handle)
+int _alpm_ldconfig(alpm_handle_t *handle)
 {
 	char line[PATH_MAX];
 
-	_alpm_log(handle, PM_LOG_DEBUG, "running ldconfig\n");
+	_alpm_log(handle, ALPM_LOG_DEBUG, "running ldconfig\n");
 
 	snprintf(line, PATH_MAX, "%setc/ld.so.conf", handle->root);
 	if(access(line, F_OK) == 0) {
@@ -566,7 +566,7 @@ int _alpm_str_cmp(const void *s1, const void *s2)
  * @param filename name of file to find
  * @return malloced path of file, NULL if not found
  */
-char *_alpm_filecache_find(pmhandle_t *handle, const char *filename)
+char *_alpm_filecache_find(alpm_handle_t *handle, const char *filename)
 {
 	char path[PATH_MAX];
 	char *retpath;
@@ -579,7 +579,7 @@ char *_alpm_filecache_find(pmhandle_t *handle, const char *filename)
 				filename);
 		if(stat(path, &buf) == 0 && S_ISREG(buf.st_mode)) {
 			retpath = strdup(path);
-			_alpm_log(handle, PM_LOG_DEBUG, "found cached pkg: %s\n", retpath);
+			_alpm_log(handle, ALPM_LOG_DEBUG, "found cached pkg: %s\n", retpath);
 			return retpath;
 		}
 	}
@@ -592,7 +592,7 @@ char *_alpm_filecache_find(pmhandle_t *handle, const char *filename)
  * @param handle the context handle
  * @return pointer to a writable cache directory.
  */
-const char *_alpm_filecache_setup(pmhandle_t *handle)
+const char *_alpm_filecache_setup(alpm_handle_t *handle)
 {
 	struct stat buf;
 	alpm_list_t *i, *tmp;
@@ -603,17 +603,17 @@ const char *_alpm_filecache_setup(pmhandle_t *handle)
 		cachedir = alpm_list_getdata(i);
 		if(stat(cachedir, &buf) != 0) {
 			/* cache directory does not exist.... try creating it */
-			_alpm_log(handle, PM_LOG_WARNING, _("no %s cache exists, creating...\n"),
+			_alpm_log(handle, ALPM_LOG_WARNING, _("no %s cache exists, creating...\n"),
 					cachedir);
 			if(_alpm_makepath(cachedir) == 0) {
-				_alpm_log(handle, PM_LOG_DEBUG, "using cachedir: %s\n", cachedir);
+				_alpm_log(handle, ALPM_LOG_DEBUG, "using cachedir: %s\n", cachedir);
 				return cachedir;
 			}
 		} else if(S_ISDIR(buf.st_mode) && (buf.st_mode & S_IWUSR)) {
-			_alpm_log(handle, PM_LOG_DEBUG, "using cachedir: %s\n", cachedir);
+			_alpm_log(handle, ALPM_LOG_DEBUG, "using cachedir: %s\n", cachedir);
 			return cachedir;
 		} else {
-			_alpm_log(handle, PM_LOG_DEBUG, "skipping cachedir: %s\n", cachedir);
+			_alpm_log(handle, ALPM_LOG_DEBUG, "skipping cachedir: %s\n", cachedir);
 		}
 	}
 
@@ -621,8 +621,8 @@ const char *_alpm_filecache_setup(pmhandle_t *handle)
 	tmp = alpm_list_add(NULL, "/tmp/");
 	alpm_option_set_cachedirs(handle, tmp);
 	alpm_list_free(tmp);
-	_alpm_log(handle, PM_LOG_DEBUG, "using cachedir: %s\n", "/tmp/");
-	_alpm_log(handle, PM_LOG_WARNING, _("couldn't create package cache, using /tmp instead\n"));
+	_alpm_log(handle, ALPM_LOG_DEBUG, "using cachedir: %s\n", "/tmp/");
+	_alpm_log(handle, ALPM_LOG_WARNING, _("couldn't create package cache, using /tmp instead\n"));
 	return "/tmp/";
 }
 

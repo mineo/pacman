@@ -24,14 +24,14 @@
 
 #define BASENAME "testpkg"
 
-static void output_cb(pmloglevel_t level, const char *fmt, va_list args)
+static void output_cb(alpm_loglevel_t level, const char *fmt, va_list args)
 {
 	if(fmt[0] == '\0') {
 		return;
 	}
 	switch(level) {
-		case PM_LOG_ERROR: printf("error: "); break;
-		case PM_LOG_WARNING: printf("warning: "); break;
+		case ALPM_LOG_ERROR: printf("error: "); break;
+		case ALPM_LOG_WARNING: printf("warning: "); break;
 		default: return; /* skip other messages */
 	}
 	vprintf(fmt, args);
@@ -40,9 +40,9 @@ static void output_cb(pmloglevel_t level, const char *fmt, va_list args)
 int main(int argc, char *argv[])
 {
 	int retval = 1; /* default = false */
-	pmhandle_t *handle;
-	enum _pmerrno_t err;
-	pmpkg_t *pkg = NULL;
+	alpm_handle_t *handle;
+	enum _alpm_errno_t err;
+	alpm_pkg_t *pkg = NULL;
 
 	if(argc != 2) {
 		fprintf(stderr, "usage: %s <package file>\n", BASENAME);
@@ -62,11 +62,11 @@ int main(int argc, char *argv[])
 			|| pkg == NULL) {
 		err = alpm_errno(handle);
 		switch(err) {
-			case PM_ERR_PKG_OPEN:
+			case ALPM_ERR_PKG_OPEN:
 				printf("Cannot open the given file.\n");
 				break;
-			case PM_ERR_LIBARCHIVE:
-			case PM_ERR_PKG_INVALID:
+			case ALPM_ERR_LIBARCHIVE:
+			case ALPM_ERR_PKG_INVALID:
 				printf("Package is invalid.\n");
 				break;
 			default:

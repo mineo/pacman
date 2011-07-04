@@ -1,4 +1,4 @@
-#!@BASH_SHELL@ -e
+#!/bin/bash -e
 #
 #   makepkg - make packages compatible for use with pacman
 #   @configure_input@
@@ -284,7 +284,7 @@ check_option() {
 #          ? - not found
 ##
 check_buildenv() {
-	echo $(in_opt_array "$1" ${BUILDENV[@]})
+	in_opt_array "$1" ${BUILDENV[@]}
 }
 
 
@@ -518,7 +518,7 @@ download_sources() {
 		local file=$(get_filepath "$netfile" || true)
 		if [[ -n "$file" ]]; then
 			msg2 "$(gettext "Found %s")" "${file##*/}"
-			rm -f "$srcdir/$file"
+			rm -f "$srcdir/${file##*/}"
 			ln -s "$file" "$srcdir/"
 			continue
 		fi
@@ -1134,7 +1134,7 @@ create_package() {
 
 	# check for changelog/install files
 	for i in 'changelog/.CHANGELOG' 'install/.INSTALL'; do
-		IFS='/' read -r orig dest <<< "$i"
+		IFS='/' read -r orig dest < <(printf '%s\n' "$i")
 
 		if [[ -n ${!orig} ]]; then
 			msg2 "$(gettext "Adding %s file...")" "$orig"
@@ -1562,7 +1562,7 @@ devel_check() {
 			newpkgver=$(date +%Y%m%d)
 		elif [[ -n ${_gitroot} && -n ${_gitname} ]] ; then
 			if ! type -p git >/dev/null; then
-				warning "$(gettext "Cannot find the %s binary required to determine latest %s revision.")" "git "git"
+				warning "$(gettext "Cannot find the %s binary required to determine latest %s revision.")" "git" "git"
 				return 0
 			fi
 			msg "$(gettext "Determining latest %s revision...")" 'git'
@@ -1576,7 +1576,7 @@ devel_check() {
 			newpkgver=$(LC_ALL=C svn info $_svntrunk | sed -n 's/^Last Changed Rev: \([0-9]*\)$/\1/p')
 		elif [[ -n ${_bzrtrunk} && -n ${_bzrmod} ]] ; then
 			if ! type -p bzr >/dev/null; then
-				warning "$(gettext "Cannot find the %s binary required to determine latest %s revision.")" "bzr" bzr"
+				warning "$(gettext "Cannot find the %s binary required to determine latest %s revision.")" "bzr" "bzr"
 				return 0
 			fi
 			msg "$(gettext "Determining latest %s revision...")" 'bzr'
@@ -1829,8 +1829,9 @@ else
 	exit 1 # $E_CONFIG_ERROR
 fi
 
-# Source user-specific makepkg.conf overrides
-if [[ -r ~/.makepkg.conf ]]; then
+# Source user-specific makepkg.conf overrides, but only if no override config
+# file was specified
+if [[ $MAKEPKG_CONF = "$confdir/makepkg.conf" && -r ~/.makepkg.conf ]]; then
 	source ~/.makepkg.conf
 fi
 
@@ -2008,9 +2009,7 @@ if [[ -n "${PKGLIST[@]}" ]]; then
 fi
 
 # check if gpg signature is to be created and if signing key is valid
-if [[ -z "$SIGNPKG" && $(check_buildenv sign) == 'y' ]]; then
-  SIGNPKG='y'
-fi
+[[ -z $SIGNPKG ]] && SIGNPKG=$(check_buildenv sign)
 if [[ $SIGNPKG == 'y' ]]; then
 	if ! gpg --list-key ${GPGKEY} &>/dev/null; then
 		if [[ ! -z $GPGKEY ]]; then

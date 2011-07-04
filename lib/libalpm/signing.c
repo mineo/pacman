@@ -104,7 +104,7 @@ static alpm_list_t *list_sigsum(gpgme_sigsum_t sigsum)
 	return summary;
 }
 
-static int init_gpgme(pmhandle_t *handle)
+static int init_gpgme(alpm_handle_t *handle)
 {
 	static int init = 0;
 	const char *version, *sigdir;
@@ -118,13 +118,13 @@ static int init_gpgme(pmhandle_t *handle)
 
 	sigdir = alpm_option_get_gpgdir(handle);
 	if(!sigdir) {
-		RET_ERR(handle, PM_ERR_SIG_MISSINGDIR, 1);
+		RET_ERR(handle, ALPM_ERR_SIG_MISSINGDIR, 1);
 	}
 
 	/* calling gpgme_check_version() returns the current version and runs
 	 * some internal library setup code */
 	version = gpgme_check_version(NULL);
-	_alpm_log(handle, PM_LOG_DEBUG, "GPGME version: %s\n", version);
+	_alpm_log(handle, ALPM_LOG_DEBUG, "GPGME version: %s\n", version);
 	gpgme_set_locale(NULL, LC_CTYPE, setlocale(LC_CTYPE, NULL));
 #ifdef LC_MESSAGES
 	gpgme_set_locale(NULL, LC_MESSAGES, setlocale(LC_MESSAGES, NULL));
@@ -146,15 +146,15 @@ static int init_gpgme(pmhandle_t *handle)
 	CHECK_ERR();
 	err = gpgme_get_engine_info(&enginfo);
 	CHECK_ERR();
-	_alpm_log(handle, PM_LOG_DEBUG, "GPGME engine info: file=%s, home=%s\n",
+	_alpm_log(handle, ALPM_LOG_DEBUG, "GPGME engine info: file=%s, home=%s\n",
 			enginfo->file_name, enginfo->home_dir);
 
 	init = 1;
 	return 0;
 
 error:
-	_alpm_log(handle, PM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(err));
-	RET_ERR(handle, PM_ERR_GPGME, 1);
+	_alpm_log(handle, ALPM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(err));
+	RET_ERR(handle, ALPM_ERR_GPGME, 1);
 }
 
 /**
@@ -205,7 +205,7 @@ error:
  * @param base64_sig optional PGP signature data in base64 encoding
  * @return a int value : 0 (valid), 1 (invalid), -1 (an error occurred)
  */
-int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
+int _alpm_gpgme_checksig(alpm_handle_t *handle, const char *path,
 		const char *base64_sig)
 {
 	int ret = 0;
@@ -219,17 +219,17 @@ int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
 	FILE *file = NULL, *sigfile = NULL;
 
 	if(!path || access(path, R_OK) != 0) {
-		RET_ERR(handle, PM_ERR_NOT_A_FILE, -1);
+		RET_ERR(handle, ALPM_ERR_NOT_A_FILE, -1);
 	}
 
 	if(!base64_sig) {
 		size_t len = strlen(path) + 5;
-		CALLOC(sigpath, len, sizeof(char), RET_ERR(handle, PM_ERR_MEMORY, -1));
+		CALLOC(sigpath, len, sizeof(char), RET_ERR(handle, ALPM_ERR_MEMORY, -1));
 		snprintf(sigpath, len, "%s.sig", path);
 
 		if(!access(sigpath, R_OK) == 0) {
 			FREE(sigpath);
-			RET_ERR(handle, PM_ERR_SIG_UNKNOWN, -1);
+			RET_ERR(handle, ALPM_ERR_SIG_UNKNOWN, -1);
 		}
 	}
 
@@ -238,7 +238,7 @@ int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
 		return -1;
 	}
 
-	_alpm_log(handle, PM_LOG_DEBUG, "checking signature for %s\n", path);
+	_alpm_log(handle, ALPM_LOG_DEBUG, "checking signature for %s\n", path);
 
 	memset(&ctx, 0, sizeof(ctx));
 	memset(&sigdata, 0, sizeof(sigdata));
@@ -250,7 +250,7 @@ int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
 	/* create our necessary data objects to verify the signature */
 	file = fopen(path, "rb");
 	if(file == NULL) {
-		handle->pm_errno = PM_ERR_NOT_A_FILE;
+		handle->pm_errno = ALPM_ERR_NOT_A_FILE;
 		ret = -1;
 		goto error;
 	}
@@ -273,7 +273,7 @@ int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
 		/* file-based, it is on disk */
 		sigfile = fopen(sigpath, "rb");
 		if(sigfile == NULL) {
-			handle->pm_errno = PM_ERR_NOT_A_FILE;
+			handle->pm_errno = ALPM_ERR_NOT_A_FILE;
 			ret = -1;
 			goto error;
 		}
@@ -287,52 +287,53 @@ int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
 	result = gpgme_op_verify_result(ctx);
 	gpgsig = result->signatures;
 	if(!gpgsig) {
-		_alpm_log(handle, PM_LOG_DEBUG, "no signatures returned\n");
+		_alpm_log(handle, ALPM_LOG_DEBUG, "no signatures returned\n");
 		ret = -1;
 		goto error;
 	}
 
-	{
+	while(gpgsig) {
 		alpm_list_t *summary_list, *summary;
 
-		_alpm_log(handle, PM_LOG_DEBUG, "fingerprint: %s\n", gpgsig->fpr);
+		_alpm_log(handle, ALPM_LOG_DEBUG, "fingerprint: %s\n", gpgsig->fpr);
 		summary_list = list_sigsum(gpgsig->summary);
 		for(summary = summary_list; summary; summary = summary->next) {
-			_alpm_log(handle, PM_LOG_DEBUG, "summary: %s\n", (const char *)summary->data);
+			_alpm_log(handle, ALPM_LOG_DEBUG, "summary: %s\n", (const char *)summary->data);
 		}
 		alpm_list_free(summary_list);
-		_alpm_log(handle, PM_LOG_DEBUG, "status: %s\n", gpgme_strerror(gpgsig->status));
-		_alpm_log(handle, PM_LOG_DEBUG, "timestamp: %lu\n", gpgsig->timestamp);
-		_alpm_log(handle, PM_LOG_DEBUG, "exp_timestamp: %lu\n", gpgsig->exp_timestamp);
-		_alpm_log(handle, PM_LOG_DEBUG, "validity: %s\n",
-				string_validity(gpgsig->validity));
-		_alpm_log(handle, PM_LOG_DEBUG, "validity_reason: %s\n",
+		_alpm_log(handle, ALPM_LOG_DEBUG, "status: %s\n", gpgme_strerror(gpgsig->status));
+		_alpm_log(handle, ALPM_LOG_DEBUG, "timestamp: %lu\n", gpgsig->timestamp);
+		_alpm_log(handle, ALPM_LOG_DEBUG, "exp_timestamp: %lu\n", gpgsig->exp_timestamp);
+		_alpm_log(handle, ALPM_LOG_DEBUG, "validity: %s; reason: %s\n",
+				string_validity(gpgsig->validity),
 				gpgme_strerror(gpgsig->validity_reason));
-		_alpm_log(handle, PM_LOG_DEBUG, "pubkey algo: %s\n",
-				gpgme_pubkey_algo_name(gpgsig->pubkey_algo));
-		_alpm_log(handle, PM_LOG_DEBUG, "hash algo: %s\n",
-				gpgme_hash_algo_name(gpgsig->hash_algo));
-	}
 
-	if(gpgsig->summary & GPGME_SIGSUM_VALID) {
-		/* good signature, continue */
-		_alpm_log(handle, PM_LOG_DEBUG, _("File %s has a valid signature.\n"),
-				path);
-	} else if(gpgsig->summary & GPGME_SIGSUM_GREEN) {
-		/* 'green' signature, not sure what to do here */
-		_alpm_log(handle, PM_LOG_WARNING, _("File %s has a green signature.\n"),
-				path);
-	} else if(gpgsig->summary & GPGME_SIGSUM_KEY_MISSING) {
-		handle->pm_errno = PM_ERR_SIG_UNKNOWN;
-		_alpm_log(handle, PM_LOG_WARNING, _("File %s has a signature from an unknown key.\n"),
-				path);
-		ret = -1;
-	} else {
-		/* we'll capture everything else here */
-		handle->pm_errno = PM_ERR_SIG_INVALID;
-		_alpm_log(handle, PM_LOG_ERROR, _("File %s has an invalid signature.\n"),
-				path);
-		ret = 1;
+		/* Note: this is structured so any bad signature will set the return code
+		 * to a bad one, but good ones just leave the default value in place; e.g.
+		 * worst case wins out. */
+		if(gpgsig->summary & GPGME_SIGSUM_VALID) {
+			/* definite good signature */
+			_alpm_log(handle, ALPM_LOG_DEBUG, "result: valid signature\n");
+		} else if(gpgsig->summary & GPGME_SIGSUM_GREEN) {
+			/* good signature */
+			_alpm_log(handle, ALPM_LOG_DEBUG, "result: green signature\n");
+		} else if(gpgsig->summary & GPGME_SIGSUM_RED) {
+			/* definite bad signature, error */
+			_alpm_log(handle, ALPM_LOG_DEBUG, "result: red signature\n");
+			handle->pm_errno = ALPM_ERR_SIG_INVALID;
+			ret = 1;
+		} else if(gpgsig->summary & GPGME_SIGSUM_KEY_MISSING) {
+			_alpm_log(handle, ALPM_LOG_DEBUG, "result: signature from unknown key\n");
+			handle->pm_errno = ALPM_ERR_SIG_UNKNOWN;
+			ret = 1;
+		} else {
+			/* we'll capture everything else here */
+			_alpm_log(handle, ALPM_LOG_DEBUG, "result: invalid signature\n");
+			handle->pm_errno = ALPM_ERR_SIG_INVALID;
+			ret = 1;
+		}
+
+		gpgsig = gpgsig->next;
 	}
 
 error:
@@ -348,13 +349,13 @@ error:
 	FREE(sigpath);
 	FREE(decoded_sigdata);
 	if(err != GPG_ERR_NO_ERROR) {
-		_alpm_log(handle, PM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(err));
-		RET_ERR(handle, PM_ERR_GPGME, -1);
+		_alpm_log(handle, ALPM_LOG_ERROR, _("GPGME error: %s\n"), gpgme_strerror(err));
+		RET_ERR(handle, ALPM_ERR_GPGME, -1);
 	}
 	return ret;
 }
 #else
-int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
+int _alpm_gpgme_checksig(alpm_handle_t *handle, const char *path,
 		const char *base64_sig)
 {
 	return -1;
@@ -362,26 +363,11 @@ int _alpm_gpgme_checksig(pmhandle_t *handle, const char *path,
 #endif
 
 /**
- * Determines the necessity of checking for a valid PGP signature
- * @param db the sync database to query
- *
- * @return signature verification level
- */
-pgp_verify_t _alpm_db_get_sigverify_level(pmdb_t *db)
-{
-	if(db->pgp_verify != PM_PGP_VERIFY_UNKNOWN) {
-		return db->pgp_verify;
-	} else {
-		return alpm_option_get_default_sigverify(db->handle);
-	}
-}
-
-/**
  * Check the PGP signature for the given package file.
  * @param pkg the package to check
  * @return a int value : 0 (valid), 1 (invalid), -1 (an error occurred)
  */
-int SYMEXPORT alpm_pkg_check_pgp_signature(pmpkg_t *pkg)
+int SYMEXPORT alpm_pkg_check_pgp_signature(alpm_pkg_t *pkg)
 {
 	ASSERT(pkg != NULL, return -1);
 	pkg->handle->pm_errno = 0;
@@ -395,7 +381,7 @@ int SYMEXPORT alpm_pkg_check_pgp_signature(pmpkg_t *pkg)
  * @param db the database to check
  * @return a int value : 0 (valid), 1 (invalid), -1 (an error occurred)
  */
-int SYMEXPORT alpm_db_check_pgp_signature(pmdb_t *db)
+int SYMEXPORT alpm_db_check_pgp_signature(alpm_db_t *db)
 {
 	ASSERT(db != NULL, return -1);
 	db->handle->pm_errno = 0;

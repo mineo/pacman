@@ -40,7 +40,7 @@
  * @param fmt output format
  * @return 0 on success, -1 on error (pm_errno is set accordingly)
  */
-int SYMEXPORT alpm_logaction(pmhandle_t *handle, const char *fmt, ...)
+int SYMEXPORT alpm_logaction(alpm_handle_t *handle, const char *fmt, ...)
 {
 	int ret;
 	va_list args;
@@ -53,11 +53,11 @@ int SYMEXPORT alpm_logaction(pmhandle_t *handle, const char *fmt, ...)
 		/* if we couldn't open it, we have an issue */
 		if(handle->logstream == NULL) {
 			if(errno == EACCES) {
-				handle->pm_errno = PM_ERR_BADPERMS;
+				handle->pm_errno = ALPM_ERR_BADPERMS;
 			} else if(errno == ENOENT) {
-				handle->pm_errno = PM_ERR_NOT_A_DIR;
+				handle->pm_errno = ALPM_ERR_NOT_A_DIR;
 			} else {
-				handle->pm_errno = PM_ERR_SYSTEM;
+				handle->pm_errno = ALPM_ERR_SYSTEM;
 			}
 			return -1;
 		}
@@ -83,7 +83,7 @@ int SYMEXPORT alpm_logaction(pmhandle_t *handle, const char *fmt, ...)
 
 /** @} */
 
-void _alpm_log(pmhandle_t *handle, pmloglevel_t flag, const char *fmt, ...)
+void _alpm_log(alpm_handle_t *handle, alpm_loglevel_t flag, const char *fmt, ...)
 {
 	va_list args;
 

@@ -49,7 +49,7 @@
 #include "callback.h"
 
 
-int trans_init(pmtransflag_t flags)
+int trans_init(alpm_transflag_t flags)
 {
 	int ret;
 	if(config->print) {
@@ -60,10 +60,10 @@ int trans_init(pmtransflag_t flags)
 	}
 
 	if(ret == -1) {
-		enum _pmerrno_t err = alpm_errno(config->handle);
-		pm_fprintf(stderr, PM_LOG_ERROR, _("failed to init transaction (%s)\n"),
+		enum _alpm_errno_t err = alpm_errno(config->handle);
+		pm_fprintf(stderr, ALPM_LOG_ERROR, _("failed to init transaction (%s)\n"),
 				alpm_strerror(err));
-		if(err == PM_ERR_HANDLE_LOCK) {
+		if(err == ALPM_ERR_HANDLE_LOCK) {
 			fprintf(stderr, _("  if you're sure a package manager is not already\n"
 						"  running, you can remove %s\n"),
 					alpm_option_get_lockfile(config->handle));
@@ -77,7 +77,7 @@ int trans_init(pmtransflag_t flags)
 int trans_release(void)
 {
 	if(alpm_trans_release(config->handle) == -1) {
-		pm_fprintf(stderr, PM_LOG_ERROR, _("failed to release transaction (%s)\n"),
+		pm_fprintf(stderr, ALPM_LOG_ERROR, _("failed to release transaction (%s)\n"),
 				alpm_strerror(alpm_errno(config->handle)));
 		return -1;
 	}
@@ -660,13 +660,13 @@ static alpm_list_t *create_verbose_header(int install)
 }
 
 /* returns package info as list of strings */
-static alpm_list_t *create_verbose_row(pmpkg_t *pkg, int install)
+static alpm_list_t *create_verbose_row(alpm_pkg_t *pkg, int install)
 {
 	char *str;
 	double size;
 	const char *label;
 	alpm_list_t *ret = NULL;
-	pmdb_t *ldb = alpm_option_get_localdb(config->handle);
+	alpm_db_t *ldb = alpm_option_get_localdb(config->handle);
 
 	/* a row consists of the package name, */
 	pm_asprintf(&str, "%s", alpm_pkg_get_name(pkg));
@@ -674,7 +674,7 @@ static alpm_list_t *create_verbose_row(pmpkg_t *pkg, int install)
 
 	/* old and new versions */
 	if(install) {
-		pmpkg_t *oldpkg = alpm_db_get_pkg(ldb, alpm_pkg_get_name(pkg));
+		alpm_pkg_t *oldpkg = alpm_db_get_pkg(ldb, alpm_pkg_get_name(pkg));
 		pm_asprintf(&str, "%s",
 				oldpkg != NULL ? alpm_pkg_get_version(oldpkg) : "");
 		ret = alpm_list_add(ret, str);
@@ -700,7 +700,7 @@ void display_targets(const alpm_list_t *pkgs, int install)
 	const alpm_list_t *i;
 	off_t isize = 0, rsize = 0, dlsize = 0;
 	alpm_list_t *j, *lp, *header = NULL, *targets = NULL;
-	pmdb_t *db_local = alpm_option_get_localdb(config->handle);
+	alpm_db_t *db_local = alpm_option_get_localdb(config->handle);
 
 	if(!pkgs) {
 		return;
@@ -708,10 +708,10 @@ void display_targets(const alpm_list_t *pkgs, int install)
 
 	/* gather pkg infos */
 	for(i = pkgs; i; i = alpm_list_next(i)) {
-		pmpkg_t *pkg = alpm_list_getdata(i);
+		alpm_pkg_t *pkg = alpm_list_getdata(i);
 
 		if(install) {
-			pmpkg_t *lpkg = alpm_db_get_pkg(db_local, alpm_pkg_get_name(pkg));
+			alpm_pkg_t *lpkg = alpm_db_get_pkg(db_local, alpm_pkg_get_name(pkg));
 			dlsize += alpm_pkg_download_size(pkg);
 			if(lpkg) {
 				/* add up size of all removed packages */
@@ -749,7 +749,7 @@ void display_targets(const alpm_list_t *pkgs, int install)
 	if(install) {
 		size = humanize_size(dlsize, 'M', 1, &label);
 		printf(_("Total Download Size:    %.2f %s\n"), size, label);
-		if(!(config->flags & PM_TRANS_FLAG_DOWNLOADONLY)) {
+		if(!(config->flags & ALPM_TRANS_FLAG_DOWNLOADONLY)) {
 			size = humanize_size(isize, 'M', 1, &label);
 			printf(_("Total Installed Size:   %.2f %s\n"), size, label);
 			/* only show this net value if different from raw installed size */
@@ -779,7 +779,7 @@ out:
 	free(str);
 }
 
-static off_t pkg_get_size(pmpkg_t *pkg)
+static off_t pkg_get_size(alpm_pkg_t *pkg)
 {
 	switch(config->op) {
 		case PM_OP_SYNC:
@@ -791,7 +791,7 @@ static off_t pkg_get_size(pmpkg_t *pkg)
 	}
 }
 
-static char *pkg_get_location(pmpkg_t *pkg)
+static char *pkg_get_location(alpm_pkg_t *pkg)
 {
 	alpm_list_t *servers;
 	char *string = NULL;
@@ -856,7 +856,7 @@ void print_packages(const alpm_list_t *packages)
 		config->print_format = strdup("%l");
 	}
 	for(i = packages; i; i = alpm_list_next(i)) {
-		pmpkg_t *pkg = alpm_list_getdata(i);
+		alpm_pkg_t *pkg = alpm_list_getdata(i);
 		char *string = strdup(config->print_format);
 		char *temp = string;
 		/* %n : pkgname */
@@ -882,7 +882,7 @@ void print_packages(const alpm_list_t *packages)
 		/* %r : repo */
 		if(strstr(temp,"%r")) {
 			const char *repo = "local";
-			pmdb_t *db = alpm_pkg_get_db(pkg);
+			alpm_db_t *db = alpm_pkg_get_db(pkg);
 			if(db) {
 				repo = alpm_db_get_name(db);
 			}
@@ -910,7 +910,7 @@ int str_cmp(const void *s1, const void *s2)
 	return strcmp(s1, s2);
 }
 
-void display_new_optdepends(pmpkg_t *oldpkg, pmpkg_t *newpkg)
+void display_new_optdepends(alpm_pkg_t *oldpkg, alpm_pkg_t *newpkg)
 {
 	alpm_list_t *old = alpm_pkg_get_optdepends(oldpkg);
 	alpm_list_t *new = alpm_pkg_get_optdepends(newpkg);
@@ -922,7 +922,7 @@ void display_new_optdepends(pmpkg_t *oldpkg, pmpkg_t *newpkg)
 	alpm_list_free(optdeps);
 }
 
-void display_optdepends(pmpkg_t *pkg)
+void display_optdepends(alpm_pkg_t *pkg)
 {
 	alpm_list_t *optdeps = alpm_pkg_get_optdepends(pkg);
 	if(optdeps) {
@@ -949,8 +949,8 @@ void select_display(const alpm_list_t *pkglist)
 	const char *dbname = NULL;
 
 	for (i = pkglist; i; i = i->next) {
-		pmpkg_t *pkg = alpm_list_getdata(i);
-		pmdb_t *db = alpm_pkg_get_db(pkg);
+		alpm_pkg_t *pkg = alpm_list_getdata(i);
+		alpm_db_t *db = alpm_pkg_get_db(pkg);
 
 		if(!dbname)
 			dbname = alpm_db_get_name(db);
@@ -1194,7 +1194,7 @@ int noyes(char *fmt, ...)
 	return ret;
 }
 
-int pm_printf(pmloglevel_t level, const char *format, ...)
+int pm_printf(alpm_loglevel_t level, const char *format, ...)
 {
 	int ret;
 	va_list args;
@@ -1207,7 +1207,7 @@ int pm_printf(pmloglevel_t level, const char *format, ...)
 	return ret;
 }
 
-int pm_fprintf(FILE *stream, pmloglevel_t level, const char *format, ...)
+int pm_fprintf(FILE *stream, alpm_loglevel_t level, const char *format, ...)
 {
 	int ret;
 	va_list args;
@@ -1228,7 +1228,7 @@ int pm_asprintf(char **string, const char *format, ...)
 	/* print the message using va_arg list */
 	va_start(args, format);
 	if(vasprintf(string, format, args) == -1) {
-		pm_fprintf(stderr, PM_LOG_ERROR,  _("failed to allocate string\n"));
+		pm_fprintf(stderr, ALPM_LOG_ERROR,  _("failed to allocate string\n"));
 		ret = -1;
 	}
 	va_end(args);
@@ -1236,7 +1236,7 @@ int pm_asprintf(char **string, const char *format, ...)
 	return ret;
 }
 
-int pm_vasprintf(char **string, pmloglevel_t level, const char *format, va_list args)
+int pm_vasprintf(char **string, alpm_loglevel_t level, const char *format, va_list args)
 {
 	int ret = 0;
 	char *msg = NULL;
@@ -1251,16 +1251,16 @@ int pm_vasprintf(char **string, pmloglevel_t level, const char *format, va_list 
 
 	/* print a prefix to the message */
 	switch(level) {
-		case PM_LOG_ERROR:
+		case ALPM_LOG_ERROR:
 			pm_asprintf(string, _("error: %s"), msg);
 			break;
-		case PM_LOG_WARNING:
+		case ALPM_LOG_WARNING:
 			pm_asprintf(string, _("warning: %s"), msg);
 			break;
-		case PM_LOG_DEBUG:
+		case ALPM_LOG_DEBUG:
 			pm_asprintf(string, "debug: %s", msg);
 			break;
-		case PM_LOG_FUNCTION:
+		case ALPM_LOG_FUNCTION:
 			pm_asprintf(string, "function: %s", msg);
 			break;
 		default:
@@ -1272,7 +1272,7 @@ int pm_vasprintf(char **string, pmloglevel_t level, const char *format, va_list 
 	return ret;
 }
 
-int pm_vfprintf(FILE *stream, pmloglevel_t level, const char *format, va_list args)
+int pm_vfprintf(FILE *stream, alpm_loglevel_t level, const char *format, va_list args)
 {
 	int ret = 0;
 
@@ -1283,7 +1283,7 @@ int pm_vfprintf(FILE *stream, pmloglevel_t level, const char *format, va_list ar
 
 #if defined(PACMAN_DEBUG)
 	/* If debug is on, we'll timestamp the output */
-	if(config->logmask & PM_LOG_DEBUG) {
+	if(config->logmask & ALPM_LOG_DEBUG) {
 		time_t t;
 		struct tm *tmp;
 		char timestr[10] = {0};
@@ -1299,16 +1299,16 @@ int pm_vfprintf(FILE *stream, pmloglevel_t level, const char *format, va_list ar
 
 	/* print a prefix to the message */
 	switch(level) {
-		case PM_LOG_ERROR:
+		case ALPM_LOG_ERROR:
 			fprintf(stream, _("error: "));
 			break;
-		case PM_LOG_WARNING:
+		case ALPM_LOG_WARNING:
 			fprintf(stream, _("warning: "));
 			break;
-		case PM_LOG_DEBUG:
+		case ALPM_LOG_DEBUG:
 			fprintf(stream, "debug: ");
 			break;
-		case PM_LOG_FUNCTION:
+		case ALPM_LOG_FUNCTION:
 			fprintf(stream, "function: ");
 			break;
 		default:
