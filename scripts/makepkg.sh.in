@@ -58,6 +58,7 @@ INFAKEROOT=0
 GENINTEG=0
 SKIPINTEG=0
 SKIPPGPCHECK=0
+SKIPCHECKSUMS=0
 INSTALL=0
 NOBUILD=0
 NODEPS=0
@@ -631,6 +632,7 @@ generate_checksums() {
 
 check_checksums() {
 	(( ! ${#source[@]} )) && return 0
+	(( SKIPCHECKSUMS )) && return 0
 
 	local correlation=0
 	local integ required
@@ -719,7 +721,7 @@ check_pgpsigs() {
 		if ! gpg --quiet --batch --status-file "$statusfile" --verify "$file" "$sourcefile" 2> /dev/null; then
 			if grep "NO_PUBKEY" "$statusfile" > /dev/null; then
 				echo "$(gettext "Warning: Unknown public key") $(awk '/NO_PUBKEY/ {print $3}' $statusfile)" >&2
-				warnings=1
+				(( SKIPCHECKSUMS )) && errors=1 || warnings=1
 			else
 				echo "$(gettext "FAILED")" >&2
 				errors=1
@@ -1802,6 +1804,7 @@ usage() {
 	printf "$(gettext "  --sign           Sign the resulting package with %s")\n" "gpg"
 	echo "$(gettext "  --skipinteg      Do not fail when integrity checks are missing")"
 	echo "$(gettext "  --skippgpcheck   Do not verify source files with pgp signatures")"
+	echo "$(gettext "  --skipchecksums  Do not verify source files with checksums")"
 	echo "$(gettext "  --source         Generate a source-only tarball without downloaded sources")"
 	echo
 	printf "$(gettext "These options can be passed to %s:")\n" "pacman"
@@ -1840,7 +1843,7 @@ OPT_LONG+=",noextract,force,forcever:,geninteg,help,holdver,skippgpcheck"
 OPT_LONG+=",install,key:,log,nocolor,nobuild,nocheck,nosign,pkg:,rmdeps"
 OPT_LONG+=",repackage,skipinteg,sign,source,syncdeps,version,config:"
 # Pacman Options
-OPT_LONG+=",noconfirm,noprogressbar"
+OPT_LONG+=",noconfirm,noprogressbar,skipchecksums"
 OPT_TEMP="$(parse_options $OPT_SHORT $OPT_LONG "$@" || echo 'PARSE_OPTIONS FAILED')"
 if [[ $OPT_TEMP = *'PARSE_OPTIONS FAILED'* ]]; then
 	# This is a small hack to stop the script bailing with 'set -e'
@@ -1879,6 +1882,7 @@ while true; do
 		-o|--nobuild)     NOBUILD=1 ;;
 		-p)               shift; BUILDFILE=$1 ;;
 		--skippgpcheck)   SKIPPGPCHECK=1;;
+		--skipchecksums)  SKIPCHECKSUMS=1;;
 		--pkg)            shift; PKGLIST=($1) ;;
 		-r|--rmdeps)      RMDEPS=1 ;;
 		-R|--repackage)   REPKG=1 ;;

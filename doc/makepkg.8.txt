@@ -90,6 +90,9 @@ Options
 *\--skippgpcheck*::
 	Do not verify PGP signatures of the source files.
 
+*\--skipchecksums*::
+	Do not verify source files with checksums.
+
 *-h, \--help*::
 	Output syntax and command line options.
 
